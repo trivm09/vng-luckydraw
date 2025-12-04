@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# Next.js trên Netlify cần plugin
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Redirect rules cho SPA routing
+[[redirects]]
+  from = "/auth/callback"
+  to = "/auth/callback"
+  status = 200
