@@ -1,12 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = createClient();
+
+  // Handle code from URL (when Supabase redirects here instead of /auth/callback)
+  useEffect(() => {
+    const code = searchParams.get("code");
+    const error = searchParams.get("error");
+
+    if (error) {
+      setMessage({ type: "error", text: "Đăng nhập thất bại. Vui lòng thử lại." });
+      return;
+    }
+
+    if (code) {
+      setLoading(true);
+      setMessage({ type: "success", text: "Đang xác thực..." });
+
+      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (error) {
+          setMessage({ type: "error", text: "Đăng nhập thất bại: " + error.message });
+          setLoading(false);
+        } else {
+          router.push("/dashboard");
+        }
+      });
+    }
+  }, [searchParams, supabase.auth, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,5 +113,19 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen flex-col items-center justify-center p-6">
+          <div className="animate-pulse">Đang tải...</div>
+        </main>
+      }
+    >
+      <LoginContent />
+    </Suspense>
   );
 }
