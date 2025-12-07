@@ -65,6 +65,8 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showDeactivateAllDialog, setShowDeactivateAllDialog] = useState(false);
+  const [deactivatingAll, setDeactivatingAll] = useState(false);
 
   const { toast } = useToast();
   const supabase = createClient();
@@ -188,6 +190,45 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
     }
   };
 
+  const handleDeactivateAll = async () => {
+    const activatedCodes = codes.filter((c) => c.is_activated);
+    if (activatedCodes.length === 0) return;
+
+    setDeactivatingAll(true);
+
+    const { error } = await supabase
+      .from("bracelet_codes")
+      .update({
+        is_activated: false,
+        activated_at: null,
+      })
+      .eq("is_activated", true);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Lỗi",
+        description: error.message,
+      });
+    } else {
+      setCodes(
+        codes.map((c) => ({
+          ...c,
+          is_activated: false,
+          activated_at: null,
+        }))
+      );
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: `Đã hủy kích hoạt ${activatedCodes.length} mã vòng tay`,
+      });
+    }
+
+    setDeactivatingAll(false);
+    setShowDeactivateAllDialog(false);
+  };
+
   const filteredCodes = codes.filter((code) => {
     const matchesSearch = code.code.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter =
@@ -233,6 +274,16 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
               <Plus className="h-4 w-4 mr-2" />
               Thêm mã mới
             </Button>
+
+            {codes.some((c) => c.is_activated) && (
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeactivateAllDialog(true)}
+              >
+                <PowerOff className="h-4 w-4 mr-2" />
+                Hủy kích hoạt tất cả
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -384,6 +435,28 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
             <AlertDialogCancel>Hủy</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Xóa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Deactivate All Confirmation */}
+      <AlertDialog open={showDeactivateAllDialog} onOpenChange={setShowDeactivateAllDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xác nhận hủy kích hoạt tất cả</AlertDialogTitle>
+            <AlertDialogDescription>
+              Bạn có chắc chắn muốn hủy kích hoạt TẤT CẢ {codes.filter((c) => c.is_activated).length} mã vòng tay đang kích hoạt?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deactivatingAll}>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeactivateAll}
+              disabled={deactivatingAll}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deactivatingAll ? "Đang xử lý..." : "Hủy kích hoạt tất cả"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -68,6 +68,8 @@ export default function CustomersTable({ initialCustomers }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterWon, setFilterWon] = useState<string>("all");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -240,6 +242,33 @@ export default function CustomersTable({ initialCustomers }: Props) {
     setDeleteId(null);
   };
 
+  const handleDeleteAll = async () => {
+    setDeletingAll(true);
+
+    const { error } = await supabase
+      .from("customers")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all records
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Lỗi xóa",
+        description: error.message,
+      });
+    } else {
+      setCustomers([]);
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: "Đã xóa tất cả khách hàng",
+      });
+    }
+
+    setDeletingAll(false);
+    setShowDeleteAllDialog(false);
+  };
+
   const openEditModal = (customer: Customer) => {
     setEditingCustomer(customer);
     setFormData({
@@ -387,6 +416,16 @@ export default function CustomersTable({ initialCustomers }: Props) {
               <Plus className="h-4 w-4 mr-2" />
               Thêm khách hàng
             </Button>
+
+            {customers.length > 0 && (
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteAllDialog(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Xóa tất cả
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -519,6 +558,28 @@ export default function CustomersTable({ initialCustomers }: Props) {
             <AlertDialogCancel>Hủy</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Xóa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete All Confirmation */}
+      <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xác nhận xóa tất cả</AlertDialogTitle>
+            <AlertDialogDescription>
+              Bạn có chắc chắn muốn xóa TẤT CẢ {customers.length} khách hàng? Hành động này không thể hoàn tác.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAll}>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAll}
+              disabled={deletingAll}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAll ? "Đang xóa..." : "Xóa tất cả"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
