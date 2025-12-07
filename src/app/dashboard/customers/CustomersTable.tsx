@@ -41,7 +41,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Trash2, Pencil } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, Download } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -299,6 +299,51 @@ export default function CustomersTable({ initialCustomers }: Props) {
     return new Date(dateString).toLocaleString("vi-VN");
   };
 
+  const handleExportCSV = () => {
+    const headers = [
+      "Tên",
+      "Số điện thoại",
+      "Mã vòng tay",
+      "Có mã từ trước",
+      "Trúng thưởng",
+      "Giải thưởng",
+      "Ngày tham gia",
+    ];
+
+    const csvData = filteredCustomers.map((customer) => [
+      customer.name,
+      customer.phone,
+      customer.bracelet_code || "",
+      customer.has_existing_code ? "Có" : "Không",
+      customer.has_won ? "Đã trúng" : "Chưa trúng",
+      customer.prize_name || "",
+      formatDate(customer.created_at),
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...csvData.map((row) =>
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+      ),
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `khach-hang-${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({
+      variant: "success",
+      title: "Thành công",
+      description: `Đã tải xuống ${filteredCustomers.length} khách hàng`,
+    });
+  };
+
   const CustomerForm = () => (
     <div className="space-y-4 py-4">
       <div className="space-y-2">
@@ -416,6 +461,13 @@ export default function CustomersTable({ initialCustomers }: Props) {
               <Plus className="h-4 w-4 mr-2" />
               Thêm khách hàng
             </Button>
+
+            {filteredCustomers.length > 0 && (
+              <Button variant="outline" onClick={handleExportCSV}>
+                <Download className="h-4 w-4 mr-2" />
+                Tải xuống CSV
+              </Button>
+            )}
 
             {customers.length > 0 && (
               <Button
