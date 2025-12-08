@@ -104,26 +104,28 @@ export default function RegisterPage() {
 
       // Nếu không có vòng tay, tạo mã ngẫu nhiên
       if (hasBracelet === "no") {
-        // Tạo mã và kiểm tra trùng lặp (giới hạn 100 lần thử)
-        let isUnique = false;
+        // Lấy tất cả mã đang dùng 1 lần duy nhất (tối ưu từ 100 queries → 1 query)
+        const { data: usedCodes } = await supabase
+          .from("customers")
+          .select("bracelet_code");
+
+        const usedCodeSet = new Set(
+          usedCodes?.map((c) => c.bracelet_code) || []
+        );
+
+        // Generate mã và check local (không query DB nữa)
         let attempts = 0;
         const MAX_ATTEMPTS = 100;
 
-        while (!isUnique && attempts < MAX_ATTEMPTS) {
+        while (attempts < MAX_ATTEMPTS) {
           finalCode = generateRandomCode();
-          const { data: existing } = await supabase
-            .from("customers")
-            .select("id")
-            .eq("bracelet_code", finalCode)
-            .maybeSingle();
-
-          if (!existing) {
-            isUnique = true;
+          if (!usedCodeSet.has(finalCode)) {
+            break;
           }
           attempts++;
         }
 
-        if (!isUnique) {
+        if (attempts >= MAX_ATTEMPTS) {
           toast({
             variant: "destructive",
             title: "Lỗi",
