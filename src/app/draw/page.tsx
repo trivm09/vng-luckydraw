@@ -15,19 +15,34 @@ interface DrawSettings {
   show_result: boolean;
 }
 
-interface Customer {
-  bracelet_code: string;
-  name: string;
-}
-
 const BACKGROUND_STORAGE_KEY = "draw_background_image";
 const POPUP_BACKGROUND_STORAGE_KEY = "draw_popup_background_image";
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+const CODE_LENGTH = 6;
+const SPIN_CHARS = "0123456789";
+const SPIN_INTERVAL_MS = 50;
+const DEFAULT_CODE = "??????";
+
+// Generate random code for spinning effect
+const generateRandomCode = () => {
+  let result = "";
+  for (let i = 0; i < CODE_LENGTH; i++) {
+    result += SPIN_CHARS.charAt(Math.floor(Math.random() * SPIN_CHARS.length));
+  }
+  return result;
+};
+
+// Helper to update display code based on settings
+const getDisplayCode = (settings: DrawSettings | null): string | null => {
+  if (settings?.show_result && settings.winning_code) {
+    return settings.winning_code;
+  }
+  return null;
+};
 
 export default function DrawPage() {
   const [settings, setSettings] = useState<DrawSettings | null>(null);
-  const [displayCode, setDisplayCode] = useState("??????");
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [displayCode, setDisplayCode] = useState(DEFAULT_CODE);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [localBackground, setLocalBackground] = useState<string | null>(null);
   const [popupBackground, setPopupBackground] = useState<string | null>(null);
@@ -52,9 +67,9 @@ export default function DrawPage() {
     }
   }, []);
 
-  // Fetch initial settings and customers
+  // Fetch initial settings
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchSettings = async () => {
       const { data: settingsData } = await supabase
         .from("draw_settings")
         .select("*")
@@ -62,22 +77,12 @@ export default function DrawPage() {
 
       if (settingsData) {
         setSettings(settingsData);
-        if (settingsData.show_result && settingsData.winning_code) {
-          setDisplayCode(settingsData.winning_code);
-        }
-      }
-
-      const { data: customersData } = await supabase
-        .from("customers")
-        .select("bracelet_code, name")
-        .eq("has_won", false);
-
-      if (customersData) {
-        setCustomers(customersData);
+        const code = getDisplayCode(settingsData);
+        if (code) setDisplayCode(code);
       }
     };
 
-    fetchData();
+    fetchSettings();
   }, [supabase]);
 
   // Subscribe to realtime changes
@@ -91,24 +96,12 @@ export default function DrawPage() {
           schema: "public",
           table: "draw_settings",
         },
-        async (payload) => {
+        (payload) => {
           const newSettings = payload.new as DrawSettings;
           setSettings(newSettings);
 
-          if (newSettings.show_result && newSettings.winning_code) {
-            setDisplayCode(newSettings.winning_code);
-          }
-
-          if (newSettings.show_result) {
-            const { data: customersData } = await supabase
-              .from("customers")
-              .select("bracelet_code, name")
-              .eq("has_won", false);
-
-            if (customersData) {
-              setCustomers(customersData);
-            }
-          }
+          const code = getDisplayCode(newSettings);
+          if (code) setDisplayCode(code);
         }
       )
       .subscribe();
@@ -116,25 +109,23 @@ export default function DrawPage() {
     return () => {
       channel.unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [supabase]);
 
-  // Spinning animation
+  // Spinning animation with fake random codes
   useEffect(() => {
-    if (!settings?.is_spinning || customers.length === 0) return;
+    if (!settings?.is_spinning) return;
 
     const interval = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * customers.length);
-      setDisplayCode(customers[randomIndex].bracelet_code);
-    }, 50);
+      setDisplayCode(generateRandomCode());
+    }, SPIN_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [settings?.is_spinning, customers]);
+  }, [settings?.is_spinning]);
 
   // Reset display when not showing result and not spinning
   useEffect(() => {
     if (!settings?.is_spinning && !settings?.show_result) {
-      setDisplayCode("??????");
+      setDisplayCode(DEFAULT_CODE);
     }
   }, [settings?.is_spinning, settings?.show_result]);
 
