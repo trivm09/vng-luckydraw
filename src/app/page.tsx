@@ -258,7 +258,11 @@ export default function RegisterPage() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Nhập họ và tên"
                 disabled={loading}
+                maxLength={20}
               />
+              {name && name.length >= 15 && (
+                <p className="text-xs text-muted-foreground">{name.length}/20 ký tự</p>
+              )}
             </div>
 
             <div className="space-y-2">

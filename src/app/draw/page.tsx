@@ -22,6 +22,7 @@ interface Customer {
 
 const BACKGROUND_STORAGE_KEY = "draw_background_image";
 const POPUP_BACKGROUND_STORAGE_KEY = "draw_popup_background_image";
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 
 export default function DrawPage() {
   const [settings, setSettings] = useState<DrawSettings | null>(null);
@@ -34,7 +35,8 @@ export default function DrawPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const popupFileInputRef = useRef<HTMLInputElement>(null);
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
   // Load backgrounds from localStorage on mount
   useEffect(() => {
@@ -174,77 +176,54 @@ export default function DrawPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toggleFullscreen]);
 
-  // Max file size: 2MB
-  const MAX_FILE_SIZE = 2 * 1024 * 1024;
+  // Handle file upload for backgrounds
+  const handleFileUpload = useCallback(
+    (
+      e: React.ChangeEvent<HTMLInputElement>,
+      storageKey: string,
+      setState: (value: string | null) => void
+    ) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
 
-  // Handle main background file upload
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("Vui lòng chọn file hình ảnh");
-      return;
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      toast.error("File quá lớn (tối đa 2MB)");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (!base64) {
-        toast.error("Lỗi đọc file");
+      if (!file.type.startsWith("image/")) {
+        toast.error("Vui lòng chọn file hình ảnh");
         return;
       }
-      try {
-        localStorage.setItem(BACKGROUND_STORAGE_KEY, base64);
-        setLocalBackground(base64);
-      } catch {
-        toast.error("Không thể lưu ảnh (localStorage đầy)");
+
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error("File quá lớn (tối đa 2MB)");
+        return;
       }
-    };
-    reader.onerror = () => {
-      toast.error("Lỗi khi đọc file ảnh");
-    };
-    reader.readAsDataURL(file);
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        if (!base64) {
+          toast.error("Lỗi đọc file");
+          return;
+        }
+        try {
+          localStorage.setItem(storageKey, base64);
+          setState(base64);
+        } catch {
+          toast.error("Không thể lưu ảnh (localStorage đầy)");
+        }
+      };
+      reader.onerror = () => {
+        toast.error("Lỗi khi đọc file ảnh");
+      };
+      reader.readAsDataURL(file);
+    },
+    []
+  );
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileUpload(e, BACKGROUND_STORAGE_KEY, setLocalBackground);
   };
 
-  // Handle popup background file upload
   const handlePopupFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("Vui lòng chọn file hình ảnh");
-      return;
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      toast.error("File quá lớn (tối đa 2MB)");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (!base64) {
-        toast.error("Lỗi đọc file");
-        return;
-      }
-      try {
-        localStorage.setItem(POPUP_BACKGROUND_STORAGE_KEY, base64);
-        setPopupBackground(base64);
-      } catch {
-        toast.error("Không thể lưu ảnh (localStorage đầy)");
-      }
-    };
-    reader.onerror = () => {
-      toast.error("Lỗi khi đọc file ảnh");
-    };
-    reader.readAsDataURL(file);
+    handleFileUpload(e, POPUP_BACKGROUND_STORAGE_KEY, setPopupBackground);
   };
 
   // Remove main background
@@ -272,157 +251,141 @@ export default function DrawPage() {
   return (
     <div
       ref={containerRef}
-      className="w-screen h-screen flex flex-col items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 bg-cover bg-center bg-no-repeat relative overflow-hidden"
-      style={{
-        ...backgroundStyle,
-        aspectRatio: "16/9",
-      }}
+      className="w-screen h-screen flex items-center justify-center bg-black"
     >
-      {/* Hidden file inputs */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-        className="hidden"
-      />
-      <input
-        ref={popupFileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handlePopupFileChange}
-        className="hidden"
-      />
+      <div
+        className="h-full max-h-screen aspect-[9/16] flex flex-col items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 bg-cover bg-center bg-no-repeat relative overflow-hidden"
+        style={backgroundStyle}
+      >
+        {/* Hidden file inputs */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+        <input
+          ref={popupFileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handlePopupFileChange}
+          className="hidden"
+        />
 
-      {/* Overlay */}
-      <div className="absolute inset-0 bg-black/30" />
+        {/* Overlay */}
+        <div className="absolute inset-0 bg-black/30" />
 
-      {/* Control buttons */}
-      {showControls && (
-        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-          {/* Upload main background button */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-3 bg-white/10 hover:bg-white/20 rounded-lg backdrop-blur-sm transition-colors"
-            title="Thêm background chính"
-          >
-            <ImagePlus className="w-6 h-6 text-white" />
-          </button>
-
-          {/* Remove main background button */}
-          {localBackground && (
+        {/* Control buttons */}
+        {showControls && (
+          <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
             <button
-              onClick={removeBackground}
-              className="p-3 bg-red-500/50 hover:bg-red-500/70 rounded-lg backdrop-blur-sm transition-colors"
-              title="Xóa background chính"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3 bg-white/10 hover:bg-white/20 rounded-lg backdrop-blur-sm transition-colors"
+              title="Thêm background chính"
             >
-              <X className="w-6 h-6 text-white" />
+              <ImagePlus className="w-6 h-6 text-white" />
             </button>
-          )}
 
-          {/* Upload popup background button */}
-          <button
-            onClick={() => popupFileInputRef.current?.click()}
-            className="p-3 bg-green-500/50 hover:bg-green-500/70 rounded-lg backdrop-blur-sm transition-colors"
-            title="Thêm background popup trúng thưởng"
-          >
-            <Gift className="w-6 h-6 text-white" />
-          </button>
-
-          {/* Remove popup background button */}
-          {popupBackground && (
-            <button
-              onClick={removePopupBackground}
-              className="p-3 bg-orange-500/50 hover:bg-orange-500/70 rounded-lg backdrop-blur-sm transition-colors"
-              title="Xóa background popup"
-            >
-              <X className="w-6 h-6 text-white" />
-            </button>
-          )}
-
-          {/* Fullscreen button */}
-          <button
-            onClick={toggleFullscreen}
-            className="p-3 bg-white/10 hover:bg-white/20 rounded-lg backdrop-blur-sm transition-colors"
-            title={isFullscreen ? "Thoát fullscreen (F)" : "Fullscreen (F)"}
-          >
-            {isFullscreen ? (
-              <Minimize className="w-6 h-6 text-white" />
-            ) : (
-              <Maximize className="w-6 h-6 text-white" />
+            {localBackground && (
+              <button
+                onClick={removeBackground}
+                className="p-3 bg-red-500/50 hover:bg-red-500/70 rounded-lg backdrop-blur-sm transition-colors"
+                title="Xóa background chính"
+              >
+                <X className="w-6 h-6 text-white" />
+              </button>
             )}
-          </button>
-        </div>
-      )}
 
-      {/* Main Content - Lucky code display */}
-      <div className="relative z-10 text-center">
-        <div className="relative">
-          <div
-            className={`font-mono text-7xl md:text-9xl lg:text-[12rem] font-bold tracking-[0.2em] select-none text-white`}
-          >
-            {displayCode}
+            <button
+              onClick={() => popupFileInputRef.current?.click()}
+              className="p-3 bg-green-500/50 hover:bg-green-500/70 rounded-lg backdrop-blur-sm transition-colors"
+              title="Thêm background popup trúng thưởng"
+            >
+              <Gift className="w-6 h-6 text-white" />
+            </button>
+
+            {popupBackground && (
+              <button
+                onClick={removePopupBackground}
+                className="p-3 bg-orange-500/50 hover:bg-orange-500/70 rounded-lg backdrop-blur-sm transition-colors"
+                title="Xóa background popup"
+              >
+                <X className="w-6 h-6 text-white" />
+              </button>
+            )}
+
+            <button
+              onClick={toggleFullscreen}
+              className="p-3 bg-white/10 hover:bg-white/20 rounded-lg backdrop-blur-sm transition-colors"
+              title={isFullscreen ? "Thoát fullscreen (F)" : "Fullscreen (F)"}
+            >
+              {isFullscreen ? (
+                <Minimize className="w-6 h-6 text-white" />
+              ) : (
+                <Maximize className="w-6 h-6 text-white" />
+              )}
+            </button>
           </div>
+        )}
+
+        {/* Main Content - Lucky code display */}
+        <div className="relative z-10 text-center px-4">
+          <p className="font-mono text-5xl sm:text-6xl md:text-7xl font-bold tracking-[0.1em] select-none text-white">
+            {displayCode}
+          </p>
         </div>
-      </div>
 
-      {/* Winner Popup */}
-      {settings?.show_result && settings?.winning_name && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center">
-          {/* Popup backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        {/* Winner Popup */}
+        {settings?.show_result && settings?.winning_name && (
+          <div className="fixed inset-0 z-30 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-          {/* Popup content */}
-          <div
-            className="relative w-[90vw] max-w-3xl aspect-square rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500 bg-cover bg-center bg-no-repeat"
-            style={popupBackgroundStyle}
-          >
-            {/* Inner overlay for better text visibility */}
-            {!popupBackground && (
-              <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/90 via-orange-500/90 to-red-500/90" />
-            )}
-
-            {/* Popup inner content */}
-            <div className="relative z-10 h-full flex flex-col items-center justify-center p-8 text-center">
-              {/* Prize name */}
-              {settings?.current_prize && (
-                <div className="mb-4">
-                  <span className="px-6 py-2 text-white text-xl md:text-2xl font-semibold">
-                    {settings.current_prize}
-                  </span>
-                </div>
+            <div
+              className="relative w-[70%] max-w-[400px] aspect-square rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500 bg-cover bg-center bg-no-repeat"
+              style={popupBackgroundStyle}
+            >
+              {!popupBackground && (
+                <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/90 via-orange-500/90 to-red-500/90" />
               )}
 
-              {/* Congratulations text */}
-              <h2 className="text-3xl md:text-5xl font-bold text-white mb-6 drop-shadow-lg">
-                CHÚC MỪNG
-              </h2>
+              <div className="relative z-10 h-full flex flex-col items-center justify-center p-8 text-center">
+                {settings?.current_prize && (
+                  <div className="mb-4">
+                    <span className="px-6 py-2 text-white text-xl md:text-2xl font-semibold">
+                      {settings.current_prize}
+                    </span>
+                  </div>
+                )}
 
-              {/* Winner name */}
-              <div className="mb-6">
-                <p className="text-4xl md:text-6xl lg:text-7xl font-bold text-white drop-shadow-lg animate-pulse">
-                  {settings.winning_name}
-                </p>
-              </div>
+                <h2 className="text-2xl md:text-3xl font-bold text-white mb-4 drop-shadow-lg">
+                  CHÚC MỪNG
+                </h2>
 
-              {/* Winning code */}
-              <div className="px-8 py-4">
-                <p className="text-white/80 text-lg mb-1">Mã số may mắn</p>
-                <p className="font-mono text-4xl md:text-5xl lg:text-6xl font-bold text-white">
-                  {settings.winning_code}
-                </p>
+                <div className="mb-4">
+                  <p className="text-2xl md:text-3xl lg:text-4xl font-bold text-white drop-shadow-lg animate-pulse">
+                    {settings.winning_name}
+                  </p>
+                </div>
+
+                <div className="px-6 py-3">
+                  <p className="text-white/80 text-base mb-1">Mã số may mắn</p>
+                  <p className="font-mono text-2xl md:text-3xl lg:text-4xl font-bold text-white">
+                    {settings.winning_code}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Hint */}
-      {showControls && (
-        <div className="absolute bottom-4 left-4 z-20 text-white/50 text-sm space-y-1">
-          <p>F - Fullscreen | H - Ẩn/hiện controls</p>
-        </div>
-      )}
+        {/* Hint */}
+        {showControls && (
+          <div className="absolute bottom-4 left-4 z-20 text-white/50 text-sm space-y-1">
+            <p>F - Fullscreen | H - Ẩn/hiện controls</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
