@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -42,7 +42,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Trash2, Power, PowerOff } from "lucide-react";
+import { Plus, Search, Trash2, Power, PowerOff, Download } from "lucide-react";
 
 interface BraceletCode {
   id: string;
@@ -59,8 +59,6 @@ interface Props {
 export default function BraceletCodesTable({ initialCodes }: Props) {
   const [codes, setCodes] = useState(initialCodes);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newCode, setNewCode] = useState("");
-  const [bulkCodes, setBulkCodes] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -71,65 +69,130 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
   const { toast } = useToast();
   const supabase = createClient();
 
-  const handleAddCode = async () => {
-    if (!newCode.trim()) return;
-    setLoading(true);
+  const handleExportTemplate = () => {
+    // Create template with headers and sample data
+    const templateData = [
+      ["Mã vòng tay"],
+      ["VNG2024001"],
+      ["VNG2024002"],
+      ["VNG2024003"],
+    ];
 
-    const { data, error } = await supabase
-      .from("bracelet_codes")
-      .insert({ code: newCode.trim() })
-      .select()
-      .single();
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(templateData);
 
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Lỗi",
-        description: error.message,
-      });
-    } else if (data) {
-      setCodes([data, ...codes]);
-      setNewCode("");
-      setShowAddModal(false);
-      toast({
-        variant: "success",
-        title: "Thành công",
-        description: "Đã thêm mã vòng tay mới",
-      });
-    }
-    setLoading(false);
+    // Set column width
+    ws["!cols"] = [{ wch: 20 }];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Mã vòng tay");
+
+    // Generate and download file
+    XLSX.writeFile(wb, "mau-ma-vong-tay.xlsx");
+
+    toast({
+      variant: "success",
+      title: "Thành công",
+      description: "Đã tải file mẫu",
+    });
   };
 
-  const handleBulkAdd = async () => {
-    const codeList = bulkCodes
-      .split("\n")
-      .map((c) => c.trim())
-      .filter((c) => c.length > 0);
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    if (codeList.length === 0) return;
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("bracelet_codes")
-      .insert(codeList.map((code) => ({ code })))
-      .select();
+    try {
+      // Read file
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][];
 
-    if (error) {
+      // Parse codes (skip header row)
+      const codeList = jsonData
+        .slice(1)
+        .map((row) => row[0]?.toString().trim())
+        .filter((code) => code && code.length > 0);
+
+      if (codeList.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Lỗi",
+          description: "File không chứa mã hợp lệ nào",
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Check which codes already exist in database
+      const { data: existingCodes } = await supabase
+        .from("bracelet_codes")
+        .select("code")
+        .in("code", codeList);
+
+      // Create Set for fast lookup
+      const existingCodeSet = new Set(
+        existingCodes?.map((item) => item.code) || []
+      );
+
+      // Filter out duplicates - only keep codes not in database
+      const newCodes = codeList.filter((code) => !existingCodeSet.has(code));
+      const duplicateCount = codeList.length - newCodes.length;
+
+      // If no new codes, show message and return
+      if (newCodes.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Không có mã mới",
+          description: `Tất cả ${duplicateCount} mã đã tồn tại trong hệ thống`,
+        });
+        setLoading(false);
+        e.target.value = "";
+        return;
+      }
+
+      // Insert new codes into database
+      const { data: insertedData, error: insertError } = await supabase
+        .from("bracelet_codes")
+        .insert(newCodes.map((code) => ({ code })))
+        .select();
+
+      if (insertError) {
+        toast({
+          variant: "destructive",
+          title: "Lỗi",
+          description: insertError.message,
+        });
+      } else if (insertedData) {
+        // Update state with new codes
+        setCodes([...insertedData, ...codes]);
+        setShowAddModal(false);
+
+        // Show success message with summary
+        const message =
+          duplicateCount > 0
+            ? `Đã thêm ${insertedData.length} mã mới, bỏ qua ${duplicateCount} mã trùng`
+            : `Đã thêm ${insertedData.length} mã mới`;
+
+        toast({
+          variant: "success",
+          title: "Thành công",
+          description: message,
+        });
+      }
+
+      // Reset file input
+      e.target.value = "";
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Lỗi",
-        description: error.message,
-      });
-    } else if (data) {
-      setCodes([...data, ...codes]);
-      setBulkCodes("");
-      setShowAddModal(false);
-      toast({
-        variant: "success",
-        title: "Thành công",
-        description: `Đã thêm ${data.length} mã vòng tay`,
+        description: "Không thể đọc file Excel",
       });
     }
+
     setLoading(false);
   };
 
@@ -365,57 +428,67 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Thêm mã vòng tay</DialogTitle>
+            <DialogTitle>Import mã vòng tay từ Excel</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Thêm một mã</Label>
-              <Input
-                value={newCode}
-                onChange={(e) => setNewCode(e.target.value)}
-                placeholder="Nhập mã vòng tay"
-              />
-              <Button
-                onClick={handleAddCode}
-                disabled={loading || !newCode.trim()}
-                className="w-full"
-              >
-                {loading ? "Đang thêm..." : "Thêm mã"}
-              </Button>
-            </div>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <Separator className="w-full" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">hoặc</span>
+          <div className="space-y-6 py-4">
+            {/* Step 1: Download Template */}
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  1
+                </div>
+                <div className="space-y-2 flex-1">
+                  <Label className="text-base font-semibold">Tải file mẫu</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Tải file Excel mẫu, điền các mã vòng tay vào cột đầu tiên
+                  </p>
+                  <Button
+                    onClick={handleExportTemplate}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Tải file mẫu (.xlsx)
+                  </Button>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Thêm nhiều mã (mỗi mã một dòng)</Label>
-              <Textarea
-                value={bulkCodes}
-                onChange={(e) => setBulkCodes(e.target.value)}
-                placeholder={"CODE001\nCODE002\nCODE003"}
-                rows={5}
-                className="font-mono"
-              />
-              <Button
-                onClick={handleBulkAdd}
-                disabled={loading || !bulkCodes.trim()}
-                variant="secondary"
-                className="w-full"
-              >
-                {loading ? "Đang thêm..." : "Thêm hàng loạt"}
-              </Button>
+            <Separator />
+
+            {/* Step 2: Upload File */}
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  2
+                </div>
+                <div className="space-y-2 flex-1">
+                  <Label className="text-base font-semibold">Upload file Excel</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Chọn file Excel đã điền dữ liệu để import vào hệ thống
+                  </p>
+                  <div className="relative">
+                    <Input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleImportExcel}
+                      disabled={loading}
+                      className="cursor-pointer"
+                    />
+                  </div>
+                  {loading && (
+                    <p className="text-sm text-primary font-medium">
+                      Đang xử lý file...
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setShowAddModal(false)}>
+            <Button variant="ghost" onClick={() => setShowAddModal(false)} disabled={loading}>
               Đóng
             </Button>
           </DialogFooter>
