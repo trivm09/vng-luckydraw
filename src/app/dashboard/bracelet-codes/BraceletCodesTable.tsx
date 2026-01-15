@@ -65,6 +65,8 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeactivateAllDialog, setShowDeactivateAllDialog] = useState(false);
   const [deactivatingAll, setDeactivatingAll] = useState(false);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const { toast } = useToast();
   const supabase = createClient();
@@ -292,6 +294,36 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
     setShowDeactivateAllDialog(false);
   };
 
+  const handleDeleteAll = async () => {
+    if (codes.length === 0) return;
+
+    setDeletingAll(true);
+
+    const { error } = await supabase
+      .from("bracelet_codes")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all (dummy condition that always matches)
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Lỗi",
+        description: error.message,
+      });
+    } else {
+      const deletedCount = codes.length;
+      setCodes([]);
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: `Đã xóa ${deletedCount} mã vòng tay`,
+      });
+    }
+
+    setDeletingAll(false);
+    setShowDeleteAllDialog(false);
+  };
+
   const filteredCodes = codes.filter((code) => {
     const matchesSearch = code.code.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter =
@@ -345,6 +377,16 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
               >
                 <PowerOff className="h-4 w-4 mr-2" />
                 Hủy kích hoạt tất cả
+              </Button>
+            )}
+
+            {codes.length > 0 && (
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteAllDialog(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Xóa tất cả
               </Button>
             )}
           </div>
@@ -530,6 +572,28 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deactivatingAll ? "Đang xử lý..." : "Hủy kích hoạt tất cả"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete All Confirmation */}
+      <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xác nhận xóa tất cả</AlertDialogTitle>
+            <AlertDialogDescription>
+              Bạn có chắc chắn muốn xóa TẤT CẢ {codes.length} mã vòng tay? Hành động này không thể hoàn tác và sẽ xóa vĩnh viễn toàn bộ dữ liệu.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAll}>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAll}
+              disabled={deletingAll}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAll ? "Đang xóa..." : "Xóa tất cả"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
