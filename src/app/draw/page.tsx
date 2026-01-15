@@ -42,17 +42,12 @@ export default function DrawPage() {
 
   // Determine which background to use
   const backgroundImage = localBackground || settings?.background_url;
-  const backgroundStyle = backgroundImage
-    ? { backgroundImage: `url(${backgroundImage})` }
-    : {};
+  const backgroundStyle = backgroundImage ? { backgroundImage: `url(${backgroundImage})` } : {};
 
   return (
-    <div
-      ref={containerRef}
-      className="w-screen h-screen flex items-center justify-center bg-black"
-    >
+    <div ref={containerRef} className="w-screen h-screen flex items-center justify-center bg-black">
       <div
-        className="h-full max-h-screen aspect-[9/16] flex flex-col items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 bg-cover bg-center bg-no-repeat relative overflow-hidden"
+        className="h-full max-h-screen aspect-[16/9] flex flex-col items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 bg-cover bg-center bg-no-repeat relative overflow-hidden"
         style={backgroundStyle}
       >
         {/* Hidden file inputs */}
