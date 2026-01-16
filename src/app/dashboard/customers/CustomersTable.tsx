@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -52,7 +54,6 @@ interface Customer {
   created_at: string;
   has_won: boolean;
   prize_name: string | null;
-  won_at: string | null;
 }
 
 interface Props {
@@ -62,6 +63,7 @@ interface Props {
 export default function CustomersTable({ initialCustomers }: Props) {
   const [customers, setCustomers] = useState(initialCustomers);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addMode, setAddMode] = useState<"manual" | "import">("manual");
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(false);
@@ -87,6 +89,191 @@ export default function CustomersTable({ initialCustomers }: Props) {
   const isValidPhone = (phone: string) => {
     const phoneRegex = /^[0-9]{10}$/;
     return phoneRegex.test(phone.replace(/\s/g, ""));
+  };
+
+  const handleExportTemplate = () => {
+    // Create template with headers and sample data
+    const templateData = [
+      ["Tên khách hàng", "Số điện thoại", "Mã vòng tay", "Có mã từ trước", "Đã trúng thưởng", "Tên giải thưởng"],
+      ["Nguyễn Văn A", "0912345678", "VNG2024001", "Không", "Không", ""],
+      ["Trần Thị B", "0987654321", "VNG2024002", "Có", "Có", "Giải nhất"],
+      ["Lê Văn C", "0901234567", "", "Không", "Không", ""],
+    ];
+
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(templateData);
+
+    // Set column widths
+    ws["!cols"] = [
+      { wch: 20 }, // Tên
+      { wch: 15 }, // SĐT
+      { wch: 15 }, // Mã vòng tay
+      { wch: 15 }, // Có mã từ trước
+      { wch: 15 }, // Đã trúng thưởng
+      { wch: 20 }, // Tên giải thưởng
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Khách hàng");
+
+    // Generate and download file
+    XLSX.writeFile(wb, "mau-khach-hang.xlsx");
+
+    toast({
+      variant: "success",
+      title: "Thành công",
+      description: "Đã tải file mẫu",
+    });
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+
+    try {
+      // Read file
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][];
+
+      // Parse customer data (skip header row)
+      const customerList: Array<{
+        name: string;
+        phone: string;
+        bracelet_code: string;
+        has_existing_code: boolean;
+        has_won: boolean;
+        prize_name: string | null;
+      }> = [];
+
+      const errors: string[] = [];
+
+      for (let i = 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row.length === 0) continue;
+
+        const name = row[0]?.toString().trim() || "";
+        const phone = row[1]?.toString().trim().replace(/\D/g, "") || "";
+        const bracelet_code = row[2]?.toString().trim() || "";
+        const has_existing_code = row[3]?.toString().trim().toLowerCase() === "có";
+        const has_won = row[4]?.toString().trim().toLowerCase() === "có";
+        const prize_name = row[5]?.toString().trim() || "";
+
+        // Validate required fields
+        if (!name) {
+          errors.push(`Dòng ${i + 1}: Thiếu tên khách hàng`);
+          continue;
+        }
+
+        if (!phone || phone.length !== 10) {
+          errors.push(`Dòng ${i + 1}: Số điện thoại không hợp lệ (${phone || "trống"})`);
+          continue;
+        }
+
+        customerList.push({
+          name,
+          phone,
+          bracelet_code,
+          has_existing_code,
+          has_won,
+          prize_name: has_won && prize_name ? prize_name : null,
+        });
+      }
+
+      if (errors.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Lỗi dữ liệu",
+          description: errors.slice(0, 3).join("; ") + (errors.length > 3 ? `... và ${errors.length - 3} lỗi khác` : ""),
+        });
+        setLoading(false);
+        e.target.value = "";
+        return;
+      }
+
+      if (customerList.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Lỗi",
+          description: "File không chứa khách hàng hợp lệ nào",
+        });
+        setLoading(false);
+        e.target.value = "";
+        return;
+      }
+
+      // Check which phones already exist in database
+      const phones = customerList.map((c) => c.phone);
+      const { data: existingCustomers } = await supabase
+        .from("customers")
+        .select("phone")
+        .in("phone", phones);
+
+      // Create Set for fast lookup
+      const existingPhoneSet = new Set(
+        existingCustomers?.map((item) => item.phone) || []
+      );
+
+      // Filter out duplicates - only keep customers not in database
+      const newCustomers = customerList.filter((c) => !existingPhoneSet.has(c.phone));
+      const duplicateCount = customerList.length - newCustomers.length;
+
+      // If no new customers, show message and return
+      if (newCustomers.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Không có khách hàng mới",
+          description: `Tất cả ${duplicateCount} số điện thoại đã tồn tại trong hệ thống`,
+        });
+        setLoading(false);
+        e.target.value = "";
+        return;
+      }
+
+      // Insert new customers into database
+      const { data: insertedData, error: insertError } = await supabase
+        .from("customers")
+        .insert(newCustomers)
+        .select();
+
+      if (insertError) {
+        toast({
+          variant: "destructive",
+          title: "Lỗi",
+          description: insertError.message,
+        });
+      } else if (insertedData) {
+        // Update state with new customers
+        setCustomers([...insertedData, ...customers]);
+        setShowAddModal(false);
+
+        // Show success message with summary
+        const message =
+          duplicateCount > 0
+            ? `Đã thêm ${insertedData.length} khách hàng mới, bỏ qua ${duplicateCount} số điện thoại trùng`
+            : `Đã thêm ${insertedData.length} khách hàng mới`;
+
+        toast({
+          variant: "success",
+          title: "Thành công",
+          description: message,
+        });
+      }
+
+      // Reset file input
+      e.target.value = "";
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Lỗi",
+        description: "Không thể đọc file Excel",
+      });
+    }
+
+    setLoading(false);
   };
 
   const resetForm = () => {
@@ -129,7 +316,6 @@ export default function CustomersTable({ initialCustomers }: Props) {
         has_existing_code: formData.has_existing_code,
         has_won: formData.has_won,
         prize_name: formData.has_won ? formData.prize_name.trim() || null : null,
-        won_at: formData.has_won ? new Date().toISOString() : null,
       })
       .select()
       .single();
@@ -175,7 +361,6 @@ export default function CustomersTable({ initialCustomers }: Props) {
         has_existing_code: formData.has_existing_code,
         has_won: formData.has_won,
         prize_name: formData.has_won ? formData.prize_name.trim() || null : null,
-        won_at: formData.has_won && !editingCustomer.has_won ? new Date().toISOString() : editingCustomer.won_at,
       })
       .eq("id", editingCustomer.id)
       .select()
@@ -205,7 +390,7 @@ export default function CustomersTable({ initialCustomers }: Props) {
     if (!deleteId) return;
 
     // Thử xóa và lấy data để kiểm tra
-    const { data, error, count } = await supabase
+    const { data, error } = await supabase
       .from("customers")
       .delete()
       .eq("id", deleteId)
@@ -455,6 +640,7 @@ export default function CustomersTable({ initialCustomers }: Props) {
             <Button
               onClick={() => {
                 resetForm();
+                setAddMode("manual");
                 setShowAddModal(true);
               }}
             >
@@ -550,25 +736,116 @@ export default function CustomersTable({ initialCustomers }: Props) {
 
       {/* Add Modal */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Thêm khách hàng</DialogTitle>
           </DialogHeader>
-          <CustomerForm />
-          <DialogFooter>
+
+          {/* Mode Selection */}
+          <div className="flex gap-2 p-1 bg-muted rounded-lg">
             <Button
-              variant="ghost"
-              onClick={() => {
-                setShowAddModal(false);
-                resetForm();
-              }}
+              variant={addMode === "manual" ? "default" : "ghost"}
+              className="flex-1"
+              onClick={() => setAddMode("manual")}
             >
-              Hủy
+              Thêm thủ công
             </Button>
-            <Button onClick={handleAdd} disabled={loading}>
-              {loading ? "Đang xử lý..." : "Thêm"}
+            <Button
+              variant={addMode === "import" ? "default" : "ghost"}
+              className="flex-1"
+              onClick={() => setAddMode("import")}
+            >
+              Import từ Excel
             </Button>
-          </DialogFooter>
+          </div>
+
+          {/* Manual Mode */}
+          {addMode === "manual" && (
+            <>
+              <CustomerForm />
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    resetForm();
+                  }}
+                >
+                  Hủy
+                </Button>
+                <Button onClick={handleAdd} disabled={loading}>
+                  {loading ? "Đang xử lý..." : "Thêm"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* Import Mode */}
+          {addMode === "import" && (
+            <>
+              <div className="space-y-6 py-4">
+                {/* Step 1: Download Template */}
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                      1
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <Label className="text-base font-semibold">Tải file mẫu</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Tải file Excel mẫu, điền thông tin khách hàng theo các cột
+                      </p>
+                      <Button
+                        onClick={handleExportTemplate}
+                        variant="outline"
+                        className="w-full"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Tải file mẫu (.xlsx)
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Step 2: Upload File */}
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                      2
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <Label className="text-base font-semibold">Upload file Excel</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Chọn file Excel đã điền dữ liệu để import vào hệ thống
+                      </p>
+                      <div className="relative">
+                        <Input
+                          type="file"
+                          accept=".xlsx,.xls"
+                          onChange={handleImportExcel}
+                          disabled={loading}
+                          className="cursor-pointer"
+                        />
+                      </div>
+                      {loading && (
+                        <p className="text-sm text-primary font-medium">
+                          Đang xử lý file...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setShowAddModal(false)} disabled={loading}>
+                  Đóng
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

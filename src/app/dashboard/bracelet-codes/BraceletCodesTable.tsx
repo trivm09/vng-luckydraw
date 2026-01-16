@@ -65,6 +65,8 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeactivateAllDialog, setShowDeactivateAllDialog] = useState(false);
   const [deactivatingAll, setDeactivatingAll] = useState(false);
+  const [showActivateAllDialog, setShowActivateAllDialog] = useState(false);
+  const [activatingAll, setActivatingAll] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
 
@@ -255,6 +257,45 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
     }
   };
 
+  const handleActivateAll = async () => {
+    const inactiveCodes = codes.filter((c) => !c.is_activated);
+    if (inactiveCodes.length === 0) return;
+
+    setActivatingAll(true);
+
+    const { error } = await supabase
+      .from("bracelet_codes")
+      .update({
+        is_activated: true,
+        activated_at: new Date().toISOString(),
+      })
+      .eq("is_activated", false);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Lỗi",
+        description: error.message,
+      });
+    } else {
+      setCodes(
+        codes.map((c) => ({
+          ...c,
+          is_activated: true,
+          activated_at: new Date().toISOString(),
+        }))
+      );
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: `Đã kích hoạt ${inactiveCodes.length} mã vòng tay`,
+      });
+    }
+
+    setActivatingAll(false);
+    setShowActivateAllDialog(false);
+  };
+
   const handleDeactivateAll = async () => {
     const activatedCodes = codes.filter((c) => c.is_activated);
     if (activatedCodes.length === 0) return;
@@ -369,6 +410,16 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
               <Plus className="h-4 w-4 mr-2" />
               Thêm mã mới
             </Button>
+
+            {codes.some((c) => !c.is_activated) && (
+              <Button
+                variant="default"
+                onClick={() => setShowActivateAllDialog(true)}
+              >
+                <Power className="h-4 w-4 mr-2" />
+                Kích hoạt tất cả
+              </Button>
+            )}
 
             {codes.some((c) => c.is_activated) && (
               <Button
@@ -550,6 +601,28 @@ export default function BraceletCodesTable({ initialCodes }: Props) {
             <AlertDialogCancel>Hủy</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Xóa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Activate All Confirmation */}
+      <AlertDialog open={showActivateAllDialog} onOpenChange={setShowActivateAllDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xác nhận kích hoạt tất cả</AlertDialogTitle>
+            <AlertDialogDescription>
+              Bạn có chắc chắn muốn kích hoạt TẤT CẢ {codes.filter((c) => !c.is_activated).length} mã vòng tay chưa kích hoạt?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={activatingAll}>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleActivateAll}
+              disabled={activatingAll}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {activatingAll ? "Đang xử lý..." : "Kích hoạt tất cả"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
