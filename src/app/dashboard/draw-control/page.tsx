@@ -45,7 +45,7 @@ export default function DrawControlPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [prize, setPrize] = useState("");
   const [loading, setLoading] = useState(false);
-  const [spinDuration, setSpinDuration] = useState(5);
+  const [spinDuration, setSpinDuration] = useState(3);
   const spinTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { toast } = useToast();
