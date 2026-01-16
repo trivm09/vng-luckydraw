@@ -5,13 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
@@ -68,10 +62,7 @@ export default function DrawControlPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: settingsData } = await supabase
-        .from("draw_settings")
-        .select("*")
-        .single();
+      const { data: settingsData } = await supabase.from("draw_settings").select("*").single();
 
       if (settingsData) {
         setSettings(settingsData);
@@ -232,9 +223,7 @@ export default function DrawControlPage() {
       });
 
       setCustomers((prev) =>
-        prev.map((c) =>
-          c.id === winner.id ? { ...c, has_won: true, prize_name: prize } : c
-        )
+        prev.map((c) => (c.id === winner.id ? { ...c, has_won: true, prize_name: prize } : c))
       );
 
       toast({
@@ -322,6 +311,12 @@ export default function DrawControlPage() {
     "Giải Nhất",
     "Giải Nhì",
     "Giải Ba",
+    "Giải 4",
+    "Giải 5",
+    "Giải 6",
+    "Giải 7",
+    "Giải 8",
+    "Giải 9",
     "Giải Khuyến Khích",
   ];
 
@@ -506,7 +501,6 @@ export default function DrawControlPage() {
               </Button>
             </div>
           </div>
-
         </CardContent>
       </Card>
 
