@@ -26,8 +26,17 @@ interface DrawSettings {
   current_prize: string;
   background_url: string;
   is_spinning: boolean;
+
+  // Legacy single winner fields (kept for backward compatibility)
   winning_code: string;
   winning_name: string;
+
+  // Multi-winner fields
+  draw_mode: number; // 1-10
+  winning_codes: string[];
+  winning_names: string[];
+  winning_count: number;
+
   show_result: boolean;
 }
 
@@ -37,7 +46,7 @@ interface Customer {
   name: string;
   phone: string;
   has_won: boolean;
-  prize_name?: string;
+  prize_name: string | null;
 }
 
 export default function DrawControlPage() {
@@ -46,6 +55,7 @@ export default function DrawControlPage() {
   const [prize, setPrize] = useState("");
   const [loading, setLoading] = useState(false);
   const [spinDuration, setSpinDuration] = useState(3);
+  const [drawMode, setDrawMode] = useState<number>(1);
   const spinTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { toast } = useToast();
@@ -102,6 +112,8 @@ export default function DrawControlPage() {
     if (!settings) return;
 
     const eligibleCustomers = customers.filter((c) => !c.has_won);
+
+    // Check if there are any eligible customers
     if (eligibleCustomers.length === 0) {
       toast({
         variant: "warning",
@@ -111,13 +123,29 @@ export default function DrawControlPage() {
       return;
     }
 
+    // Check if enough eligible customers for selected draw mode
+    if (eligibleCustomers.length < drawMode) {
+      toast({
+        variant: "warning",
+        title: "Không đủ người chơi",
+        description: `Chỉ còn ${eligibleCustomers.length} người chưa trúng, nhưng bạn chọn quay ${drawMode} người`,
+      });
+      return;
+    }
+
     setLoading(true);
 
+    // Reset and start spinning
     const { error: startError } = await supabase
       .from("draw_settings")
       .update({
         is_spinning: true,
         show_result: false,
+        draw_mode: drawMode,
+        winning_codes: [],
+        winning_names: [],
+        winning_count: 0,
+        // Keep legacy fields for backward compatibility
         winning_code: "",
         winning_name: "",
         updated_at: new Date().toISOString(),
@@ -138,12 +166,16 @@ export default function DrawControlPage() {
       ...settings,
       is_spinning: true,
       show_result: false,
+      draw_mode: drawMode,
+      winning_codes: [],
+      winning_names: [],
+      winning_count: 0,
       winning_code: "",
       winning_name: "",
     });
 
     spinTimeoutRef.current = setTimeout(async () => {
-      // Re-check eligible customers để tránh race condition
+      // Re-fetch eligible customers to avoid race conditions
       const { data: freshCustomers } = await supabase
         .from("customers")
         .select("id, bracelet_code, name, phone, has_won, prize_name")
@@ -151,38 +183,42 @@ export default function DrawControlPage() {
 
       const currentEligible = freshCustomers || eligibleCustomers;
 
-      if (currentEligible.length === 0) {
+      if (currentEligible.length < drawMode) {
         toast({
           variant: "warning",
-          title: "Không có người chơi",
-          description: "Không còn ai chưa trúng thưởng",
+          title: "Không đủ người chơi",
+          description: `Không đủ người chưa trúng thưởng (cần ${drawMode}, còn ${currentEligible.length})`,
         });
         setLoading(false);
         spinTimeoutRef.current = null;
         return;
       }
 
-      const randomIndex = Math.floor(Math.random() * currentEligible.length);
-      const winner = currentEligible[randomIndex];
+      // Select multiple winners randomly (without replacement)
+      const winners: typeof currentEligible = [];
+      const eligiblePool = [...currentEligible];
 
-      if (!winner) {
-        toast({
-          variant: "destructive",
-          title: "Lỗi",
-          description: "Không tìm thấy người trúng thưởng",
-        });
-        setLoading(false);
-        spinTimeoutRef.current = null;
-        return;
+      for (let i = 0; i < drawMode; i++) {
+        const randomIndex = Math.floor(Math.random() * eligiblePool.length);
+        winners.push(eligiblePool[randomIndex]);
+        eligiblePool.splice(randomIndex, 1); // Remove selected winner from pool
       }
 
+      const winningCodes = winners.map((w) => w.bracelet_code);
+      const winningNames = winners.map((w) => w.name);
+
+      // Update draw_settings with results
       const { error: resultError } = await supabase
         .from("draw_settings")
         .update({
           is_spinning: false,
           show_result: true,
-          winning_code: winner.bracelet_code,
-          winning_name: winner.name,
+          winning_codes: winningCodes,
+          winning_names: winningNames,
+          winning_count: winners.length,
+          // Update legacy fields with first winner for backward compatibility
+          winning_code: winningCodes[0],
+          winning_name: winningNames[0],
           updated_at: new Date().toISOString(),
         })
         .eq("id", settings.id);
@@ -198,38 +234,54 @@ export default function DrawControlPage() {
         return;
       }
 
-      const { error: winnerError } = await supabase
-        .from("customers")
-        .update({
-          has_won: true,
-          prize_name: prize,
-        })
-        .eq("id", winner.id);
+      // Batch update all winners in customers table
+      const updatePromises = winners.map((winner) =>
+        supabase
+          .from("customers")
+          .update({
+            has_won: true,
+            prize_name: prize,
+          })
+          .eq("id", winner.id)
+      );
 
-      if (winnerError) {
+      const updateResults = await Promise.all(updatePromises);
+
+      const hasError = updateResults.some((result) => result.error);
+      if (hasError) {
         toast({
           variant: "destructive",
-          title: "Lỗi",
-          description: "Không thể cập nhật người trúng: " + winnerError.message,
+          title: "Cảnh báo",
+          description: "Một số người trúng có thể chưa được cập nhật đầy đủ",
         });
       }
 
+      // Update local state
       setSettings({
         ...settings,
         is_spinning: false,
         show_result: true,
-        winning_code: winner.bracelet_code,
-        winning_name: winner.name,
+        draw_mode: drawMode,
+        winning_codes: winningCodes,
+        winning_names: winningNames,
+        winning_count: winners.length,
+        winning_code: winningCodes[0],
+        winning_name: winningNames[0],
       });
 
       setCustomers((prev) =>
-        prev.map((c) => (c.id === winner.id ? { ...c, has_won: true, prize_name: prize } : c))
+        prev.map((c) => {
+          const isWinner = winners.some((w) => w.id === c.id);
+          return isWinner ? { ...c, has_won: true, prize_name: prize } : c;
+        })
       );
 
       toast({
-        variant: "success",
-        title: "Có người trúng thưởng!",
-        description: `${winner.name} - ${winner.bracelet_code}`,
+        title: `${winners.length} người trúng thưởng!`,
+        description:
+          winners.length === 1
+            ? `${winners[0].name} - ${winners[0].bracelet_code}`
+            : winners.map((w) => w.name).join(", "),
       });
 
       setLoading(false);
@@ -403,11 +455,26 @@ export default function DrawControlPage() {
               </CardDescription>
             </div>
 
-            {settings?.show_result && settings?.winning_code && (
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">Người trúng</p>
-                <p className="font-bold text-green-600">{settings.winning_name}</p>
-                <p className="font-mono text-lg">{settings.winning_code}</p>
+            {settings?.show_result && settings?.winning_count > 0 && (
+              <div className="text-right max-w-md">
+                <p className="text-sm text-muted-foreground">
+                  Người trúng ({settings.winning_count})
+                </p>
+                {settings.winning_count === 1 ? (
+                  <>
+                    <p className="font-bold text-green-600">{settings.winning_names[0]}</p>
+                    <p className="font-mono text-lg">{settings.winning_codes[0]}</p>
+                  </>
+                ) : (
+                  <div className="max-h-24 overflow-y-auto space-y-1 mt-1">
+                    {settings.winning_names.map((name, idx) => (
+                      <div key={idx} className="text-sm flex justify-between gap-2">
+                        <span className="font-semibold text-green-600 truncate">{name}</span>
+                        <span className="font-mono">{settings.winning_codes[idx]}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -500,6 +567,67 @@ export default function DrawControlPage() {
                 Cập nhật
               </Button>
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Draw Mode Selection */}
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-base font-semibold">
+              <Users className="w-4 h-4" />
+              Số người trúng thưởng
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={drawMode === 1 ? "default" : "outline"}
+                size="lg"
+                onClick={() => setDrawMode(1)}
+                className={drawMode === 1 ? "bg-blue-600 hover:bg-blue-700" : ""}
+              >
+                1 người
+              </Button>
+              <Button
+                variant={drawMode === 5 ? "default" : "outline"}
+                size="lg"
+                onClick={() => setDrawMode(5)}
+                className={drawMode === 5 ? "bg-blue-600 hover:bg-blue-700" : ""}
+              >
+                5 người
+              </Button>
+              <Button
+                variant={drawMode === 10 ? "default" : "outline"}
+                size="lg"
+                onClick={() => setDrawMode(10)}
+                className={drawMode === 10 ? "bg-blue-600 hover:bg-blue-700" : ""}
+              >
+                10 người
+              </Button>
+            </div>
+            <div className="flex gap-2 items-center">
+              <Label htmlFor="custom-draw-mode" className="whitespace-nowrap">
+                Hoặc nhập tùy chỉnh:
+              </Label>
+              <Input
+                id="custom-draw-mode"
+                type="number"
+                min={1}
+                max={10}
+                value={drawMode}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || 1;
+                  setDrawMode(Math.min(10, Math.max(1, value)));
+                }}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">
+                (Tối đa 10 người, 5 người/hàng)
+              </span>
+            </div>
+            {drawMode > eligibleCount && eligibleCount > 0 && (
+              <p className="text-sm text-amber-600">
+                ⚠️ Chỉ còn {eligibleCount} người chưa trúng, nhưng bạn chọn quay {drawMode} người
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

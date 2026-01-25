@@ -95,12 +95,29 @@ ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE draw_settings ENABLE ROW LEVEL SECURITY;
 
 -- Public read/insert cho customers (đăng ký)
-CREATE POLICY "Anyone can register" ON customers FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can register with validation" ON customers
+  FOR INSERT
+  WITH CHECK (
+    name IS NOT NULL AND LENGTH(TRIM(name)) > 0 AND LENGTH(TRIM(name)) <= 255 AND
+    phone IS NOT NULL AND phone ~ '^0[0-9]{9}$' AND  -- Vietnamese phone format
+    bracelet_code IS NOT NULL AND
+    LENGTH(TRIM(bracelet_code)) >= 6 AND LENGTH(TRIM(bracelet_code)) <= 50 AND
+    (has_won = false OR has_won IS NULL) AND prize_name IS NULL
+  );
+
 CREATE POLICY "Anyone can read customers" ON customers FOR SELECT USING (true);
 
 -- Public read cho bracelet_codes
 CREATE POLICY "Anyone can read bracelet_codes" ON bracelet_codes FOR SELECT USING (true);
-CREATE POLICY "Anyone can update bracelet_codes" ON bracelet_codes FOR UPDATE USING (true);
+
+-- Only allow activating unused bracelet codes (for registration form)
+CREATE POLICY "Anyone can activate unused bracelet_codes" ON bracelet_codes
+  FOR UPDATE
+  USING (is_activated = false)  -- Can only update codes that are not yet activated
+  WITH CHECK (
+    is_activated = true AND      -- Can only set to activated
+    activated_at IS NOT NULL     -- Must set activation timestamp
+  );
 
 -- Public read cho draw_settings
 CREATE POLICY "Anyone can read draw_settings" ON draw_settings FOR SELECT USING (true);

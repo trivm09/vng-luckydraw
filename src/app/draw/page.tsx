@@ -14,7 +14,7 @@ export default function DrawPage() {
 
   const settings = useDrawSettings();
   const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef);
-  const displayCode = useSpinAnimation(settings);
+  const displayCodes = useSpinAnimation(settings);
   const {
     localBackground,
     popupBackground,
@@ -27,6 +27,22 @@ export default function DrawPage() {
     openMainFileDialog,
     openPopupFileDialog,
   } = useBackgroundUpload();
+
+  // Calculate layout based on draw mode
+  const drawMode = settings?.draw_mode || 1;
+  const winnersPerRow = 5;
+  const needsMultipleRows = drawMode > winnersPerRow;
+  const firstRowCount = Math.min(drawMode, winnersPerRow);
+  const secondRowCount = Math.max(0, drawMode - winnersPerRow);
+
+  // Dynamic font size based on winner count
+  const getFontSize = (count: number) => {
+    if (count === 1) return "text-5xl sm:text-6xl md:text-7xl";
+    if (count <= 3) return "text-3xl sm:text-4xl md:text-5xl";
+    if (count <= 5) return "text-2xl sm:text-3xl md:text-4xl";
+    if (count <= 7) return "text-xl sm:text-2xl md:text-3xl";
+    return "text-lg sm:text-xl md:text-2xl";
+  };
 
   // Keyboard shortcut for hiding controls (H key)
   useEffect(() => {
@@ -84,14 +100,65 @@ export default function DrawPage() {
         )}
 
         {/* Main Content - Lucky code display */}
-        <div className="relative z-10 text-center px-4">
-          <p className="font-mono text-5xl sm:text-6xl md:text-7xl font-bold tracking-[0.1em] select-none text-white">
-            {displayCode}
-          </p>
+        <div className="relative z-10 text-center px-4 w-full max-w-7xl">
+          {drawMode === 1 ? (
+            // Single winner - large centered display
+            <p
+              className={`font-mono ${getFontSize(
+                1
+              )} font-bold tracking-[0.1em] select-none text-white`}
+            >
+              {displayCodes[0]}
+            </p>
+          ) : needsMultipleRows ? (
+            // Multiple rows (6-10 winners)
+            <div className="space-y-3 sm:space-y-4">
+              <div className="flex justify-center gap-2 sm:gap-3">
+                {displayCodes.slice(0, firstRowCount).map((code, idx) => (
+                  <div
+                    key={idx}
+                    className={`font-mono ${getFontSize(
+                      drawMode
+                    )} font-bold tracking-wider select-none text-white bg-black/20 px-2 sm:px-3 py-2 rounded-lg backdrop-blur-sm`}
+                  >
+                    {code}
+                  </div>
+                ))}
+              </div>
+              {secondRowCount > 0 && (
+                <div className="flex justify-center gap-2 sm:gap-3">
+                  {displayCodes.slice(firstRowCount, drawMode).map((code, idx) => (
+                    <div
+                      key={idx + firstRowCount}
+                      className={`font-mono ${getFontSize(
+                        drawMode
+                      )} font-bold tracking-wider select-none text-white bg-black/20 px-2 sm:px-3 py-2 rounded-lg backdrop-blur-sm`}
+                    >
+                      {code}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            // Single row (2-5 winners)
+            <div className="flex justify-center gap-3 sm:gap-4">
+              {displayCodes.map((code, idx) => (
+                <div
+                  key={idx}
+                  className={`font-mono ${getFontSize(
+                    drawMode
+                  )} font-bold tracking-wider select-none text-white bg-black/20 px-3 sm:px-4 py-2 sm:py-3 rounded-lg backdrop-blur-sm`}
+                >
+                  {code}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Winner Popup */}
-        {settings?.show_result && settings?.winning_name && (
+        {settings?.show_result && settings?.winning_count > 0 && (
           <WinnerPopup settings={settings} popupBackground={popupBackground} />
         )}
       </div>

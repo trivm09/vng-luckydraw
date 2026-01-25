@@ -6,8 +6,17 @@ export interface DrawSettings {
   current_prize: string;
   background_url: string;
   is_spinning: boolean;
+
+  // Legacy single winner fields (kept for backward compatibility)
   winning_code: string;
   winning_name: string;
+
+  // Multi-winner fields
+  draw_mode: number; // 1-10
+  winning_codes: string[];
+  winning_names: string[];
+  winning_count: number;
+
   show_result: boolean;
 }
 

@@ -14,33 +14,43 @@ const generateRandomCode = () => {
   return result;
 };
 
-export function useSpinAnimation(settings: DrawSettings | null) {
-  const [displayCode, setDisplayCode] = useState(DEFAULT_CODE);
+const generateDefaultCodes = (count: number): string[] => {
+  return Array(count).fill(DEFAULT_CODE);
+};
 
-  // Update display code when result is shown
+export function useSpinAnimation(settings: DrawSettings | null) {
+  const [displayCodes, setDisplayCodes] = useState<string[]>([DEFAULT_CODE]);
+
+  // Update display codes when result is shown
   useEffect(() => {
-    if (settings?.show_result && settings.winning_code) {
-      setDisplayCode(settings.winning_code);
+    if (settings?.show_result && settings.winning_codes && settings.winning_codes.length > 0) {
+      setDisplayCodes(settings.winning_codes);
     }
-  }, [settings?.show_result, settings?.winning_code]);
+  }, [settings?.show_result, settings?.winning_codes]);
 
   // Spinning animation with fake random codes
   useEffect(() => {
     if (!settings?.is_spinning) return;
 
+    const count = settings.draw_mode || 1;
+
     const interval = setInterval(() => {
-      setDisplayCode(generateRandomCode());
+      const randomCodes = Array(count)
+        .fill(null)
+        .map(() => generateRandomCode());
+      setDisplayCodes(randomCodes);
     }, SPIN_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [settings?.is_spinning]);
+  }, [settings?.is_spinning, settings?.draw_mode]);
 
   // Reset display when not showing result and not spinning
   useEffect(() => {
     if (!settings?.is_spinning && !settings?.show_result) {
-      setDisplayCode(DEFAULT_CODE);
+      const count = settings?.draw_mode || 1;
+      setDisplayCodes(generateDefaultCodes(count));
     }
-  }, [settings?.is_spinning, settings?.show_result]);
+  }, [settings?.is_spinning, settings?.show_result, settings?.draw_mode]);
 
-  return displayCode;
+  return displayCodes;
 }
