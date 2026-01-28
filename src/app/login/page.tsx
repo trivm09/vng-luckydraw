@@ -43,23 +43,56 @@ function LoginContent() {
     setLoading(true);
     setMessage(null);
 
-    const supabase = createClient();
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-
-    if (error) {
-      setMessage({ type: "error", text: error.message });
-    } else {
-      setMessage({
-        type: "success",
-        text: "Kiểm tra email của bạn để nhận link đăng nhập!",
+    try {
+      // Validate email exists in system first
+      console.log("Validating email:", email);
+      const validateResponse = await fetch("/api/auth/validate-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
       });
-      setEmail("");
+
+      const validateData = await validateResponse.json();
+      console.log("Validation response:", validateData);
+
+      if (!validateData.exists) {
+        console.log("Email not found in system");
+        setMessage({
+          type: "error",
+          text: "Email này không có quyền truy cập. Vui lòng liên hệ quản trị viên.",
+        });
+        setLoading(false);
+        return;
+      }
+
+      console.log("Email validated, sending magic link");
+
+      // Email exists, proceed with sending magic link
+      const supabase = createClient();
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        setMessage({ type: "error", text: error.message });
+      } else {
+        setMessage({
+          type: "success",
+          text: "Kiểm tra email của bạn để nhận link đăng nhập!",
+        });
+        setEmail("");
+      }
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: "Đã xảy ra lỗi. Vui lòng thử lại.",
+      });
     }
 
     setLoading(false);
